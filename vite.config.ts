@@ -4,5 +4,10 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  server: { port: 5173 },
+
+  base: '/carousel-studio/',
+
+  server: {
+    port: 5173,
+  },
 })
