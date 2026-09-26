@@ -1,0 +1,368 @@
+import { Check, RotateCcw, Upload } from 'lucide-react'
+import { useRef, useState } from 'react'
+
+import { Button } from '../../components/ui/Button'
+import { Input, Label, SectionTitle, Select, Slider, Toggle } from '../../components/ui/Field'
+import { useToast } from '../../components/ui/Toast'
+import { loadBrandKit, saveBrandKit } from '../../lib/brand'
+import { PLATFORMS } from '../../lib/platforms'
+import { BG_STYLE_OPTIONS, FONT_OPTIONS, getTheme, RADIUS_OPTIONS, THEMES } from '../../lib/themes'
+import type { BrandKit, PlatformId, Project } from '../../lib/types'
+import { cn, readFileAsDataUrl } from '../../lib/utils'
+import { useAppStore } from '../../store/store'
+import { ThemeSwatch } from '../themes/ThemeSwatch'
+
+const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i
+
+function ColorField({
+  label,
+  value,
+  fallback,
+  onChange,
+}: {
+  label: string
+  value?: string
+  fallback: string
+  onChange: (value: string) => void
+}) {
+  const current = value ?? fallback
+  const safe = HEX.test(current) ? current : HEX.test(fallback) ? fallback : '#000000'
+  return (
+    <div>
+      <Label>{label}</Label>
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          value={safe}
+          onChange={(event) => onChange(event.target.value)}
+          className="h-8 w-9 shrink-0 cursor-pointer rounded-md border border-line bg-app p-0.5"
+          aria-label={label}
+        />
+        <Input value={current} onChange={(event) => onChange(event.target.value)} />
+      </div>
+    </div>
+  )
+}
+
+export function DesignPanel({ project }: { project: Project }) {
+  const setTheme = useAppStore((state) => state.setTheme)
+  const setOverrides = useAppStore((state) => state.setOverrides)
+  const resetOverrides = useAppStore((state) => state.resetOverrides)
+  const setDesign = useAppStore((state) => state.setDesign)
+  const setPlatform = useAppStore((state) => state.setPlatform)
+  const setLogo = useAppStore((state) => state.setLogo)
+  const { toast } = useToast()
+
+  const logoInput = useRef<HTMLInputElement>(null)
+  const brandLogoInput = useRef<HTMLInputElement>(null)
+  const theme = getTheme(project.design.themeId)
+  const tokens = theme.tokens
+  const overrides = project.design.overrides
+  const overrideCount = Object.keys(overrides).length
+
+  const [brandKit, setBrandKit] = useState<BrandKit>(
+    () => loadBrandKit() ?? { name: '', color: tokens.accent, font: tokens.fontHeading },
+  )
+
+  const uploadLogo = async (file: File | undefined, target: 'project' | 'brand') => {
+    if (!file) return
+    try {
+      const dataUrl = await readFileAsDataUrl(file)
+      if (target === 'project') {
+        setLogo(dataUrl)
+        setDesign({ showLogo: true })
+      } else {
+        setBrandKit((kit) => ({ ...kit, logoUrl: dataUrl }))
+      }
+    } catch {
+      toast('Could not read that image', 'error')
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <section>
+        <SectionTitle hint={theme.name}>Theme</SectionTitle>
+        <div className="grid grid-cols-3 gap-2">
+          {THEMES.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              title={item.tagline}
+              onClick={() => setTheme(item.id)}
+              className={cn(
+                'relative rounded-xl border p-1 transition-all',
+                item.id === project.design.themeId
+                  ? 'border-brand ring-2 ring-brand/25'
+                  : 'border-line hover:border-line-strong',
+              )}
+            >
+              <ThemeSwatch theme={item} />
+              <span className="mt-1 block truncate text-center text-[10px] text-ink-soft">{item.name}</span>
+              {item.id === project.design.themeId && (
+                <span className="absolute right-2 top-2 flex h-4 w-4 items-center justify-center rounded-full bg-brand text-white">
+                  <Check size={11} />
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section>
+        <SectionTitle
+          hint={overrideCount > 0 ? `${overrideCount} override${overrideCount === 1 ? '' : 's'}` : undefined}
+          action={
+            overrideCount > 0 ? (
+              <button
+                type="button"
+                onClick={resetOverrides}
+                className="inline-flex items-center gap-1 text-[11px] text-ink-soft transition-colors hover:text-ink"
+              >
+                <RotateCcw size={11} />
+                Reset
+              </button>
+            ) : undefined
+          }
+        >
+          Customize
+        </SectionTitle>
+        <div className="space-y-3">
+          <ColorField
+            label="Accent"
+            value={overrides.accent}
+            fallback={tokens.accent}
+            onChange={(accent) => setOverrides({ accent })}
+          />
+          <ColorField
+            label="Background"
+            value={overrides.bg}
+            fallback={tokens.bg}
+            onChange={(bg) => setOverrides({ bg })}
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <Label>Heading font</Label>
+              <Select
+                value={overrides.fontHeading ?? tokens.fontHeading}
+                onChange={(event) => setOverrides({ fontHeading: event.target.value })}
+              >
+                {FONT_OPTIONS.map((font) => (
+                  <option key={font.value} value={font.value}>
+                    {font.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <Label>Body font</Label>
+              <Select
+                value={overrides.fontBody ?? tokens.fontBody}
+                onChange={(event) => setOverrides({ fontBody: event.target.value })}
+              >
+                {FONT_OPTIONS.map((font) => (
+                  <option key={font.value} value={font.value}>
+                    {font.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <Label>Corners</Label>
+              <Select
+                value={overrides.radius ?? tokens.radius}
+                onChange={(event) => setOverrides({ radius: event.target.value })}
+              >
+                {RADIUS_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <Label>Background</Label>
+              <Select
+                value={overrides.background ?? tokens.background}
+                onChange={(event) =>
+                  setOverrides({ background: event.target.value as (typeof BG_STYLE_OPTIONS)[number]['value'] })
+                }
+              >
+                {BG_STYLE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          </div>
+          <div>
+            <Label>Slide padding</Label>
+            <Slider
+              min={56}
+              max={128}
+              step={2}
+              value={overrides.padding ?? tokens.padding}
+              onChange={(padding) => setOverrides({ padding })}
+              suffix="px"
+            />
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <SectionTitle>Display</SectionTitle>
+        <div className="space-y-2.5">
+          <Input
+            value={project.design.kicker}
+            placeholder="Kicker label (e.g. BUILDING IN PUBLIC)"
+            onChange={(event) => setDesign({ kicker: event.target.value })}
+          />
+          <Toggle
+            checked={project.design.showSlideNumbers}
+            onChange={(showSlideNumbers) => setDesign({ showSlideNumbers })}
+            label="Slide numbers & progress"
+          />
+          <Toggle
+            checked={project.design.showLogo}
+            onChange={(showLogo) => setDesign({ showLogo })}
+            label="Show logo on slides"
+            description="Uses the logo uploaded below"
+          />
+          <div className="flex items-center gap-2">
+            <input
+              ref={logoInput}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(event) => uploadLogo(event.target.files?.[0], 'project')}
+            />
+            <Button size="sm" className="flex-1" onClick={() => logoInput.current?.click()}>
+              <Upload size={13} />
+              {project.logoUrl ? 'Replace logo' : 'Upload logo'}
+            </Button>
+            {project.logoUrl && (
+              <Button size="sm" variant="ghost" onClick={() => setLogo(undefined)}>
+                Clear
+              </Button>
+            )}
+          </div>
+          {project.logoUrl && (
+            <div className="flex h-14 items-center justify-center rounded-lg border border-line bg-app p-2">
+              <img src={project.logoUrl} alt="Logo preview" className="max-h-full max-w-full object-contain" />
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section>
+        <SectionTitle>Platform</SectionTitle>
+        <Select
+          value={project.design.platformId}
+          onChange={(event) => setPlatform(event.target.value as PlatformId)}
+        >
+          {PLATFORMS.map((platform) => (
+            <option key={platform.id} value={platform.id}>
+              {platform.label} · {platform.width}×{platform.height}
+            </option>
+          ))}
+        </Select>
+        <p className="mt-1.5 text-[11px] text-ink-soft">
+          Presets are abstract — new networks can be added without touching the editor.
+        </p>
+      </section>
+
+      <section>
+        <SectionTitle>Brand kit</SectionTitle>
+        <div className="space-y-3">
+          <Input
+            value={brandKit.name}
+            placeholder="Brand or profile name"
+            onChange={(event) => setBrandKit((kit) => ({ ...kit, name: event.target.value }))}
+          />
+          <ColorField
+            label="Brand color"
+            value={brandKit.color}
+            fallback={tokens.accent}
+            onChange={(color) => setBrandKit((kit) => ({ ...kit, color }))}
+          />
+          <div>
+            <Label>Brand font</Label>
+            <Select
+              value={brandKit.font}
+              onChange={(event) => setBrandKit((kit) => ({ ...kit, font: event.target.value }))}
+            >
+              {FONT_OPTIONS.map((font) => (
+                <option key={font.value} value={font.value}>
+                  {font.label}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <input
+            ref={brandLogoInput}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(event) => uploadLogo(event.target.files?.[0], 'brand')}
+          />
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="secondary" className="flex-1" onClick={() => brandLogoInput.current?.click()}>
+              <Upload size={13} />
+              {brandKit.logoUrl ? 'Replace brand logo' : 'Add brand logo'}
+            </Button>
+            {brandKit.logoUrl && (
+              <Button size="sm" variant="ghost" onClick={() => setBrandKit((kit) => ({ ...kit, logoUrl: undefined }))}>
+                Clear
+              </Button>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="secondary"
+              className="flex-1"
+              onClick={() => {
+                saveBrandKit(brandKit)
+                toast('Brand kit saved in this browser', 'success')
+              }}
+            >
+              Save brand kit
+            </Button>
+            <Button
+              size="sm"
+              variant="primary"
+              className="flex-1"
+              onClick={() => {
+                setOverrides({
+                  accent: brandKit.color,
+                  fontHeading: brandKit.font,
+                  fontBody: brandKit.font,
+                })
+                if (brandKit.logoUrl) {
+                  setLogo(brandKit.logoUrl)
+                  setDesign({ showLogo: true })
+                }
+                if (brandKit.name.trim()) setDesign({ kicker: brandKit.name.trim().toUpperCase() })
+                toast('Brand kit applied to this carousel', 'success')
+              }}
+            >
+              Apply
+            </Button>
+          </div>
+          {brandKit.logoUrl && (
+            <div className="flex h-14 items-center justify-center rounded-lg border border-line bg-app p-2">
+              <img src={brandKit.logoUrl} alt="Brand logo preview" className="max-h-full max-w-full object-contain" />
+            </div>
+          )}
+          <p className="text-[11px] leading-relaxed text-ink-soft">
+            Applying a brand kit updates colors, fonts and logo across every slide while keeping your content
+            untouched.
+          </p>
+        </div>
+      </section>
+    </div>
+  )
+}
