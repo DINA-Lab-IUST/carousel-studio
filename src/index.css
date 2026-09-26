@@ -1,0 +1,135 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --app-bg: #f5f6f8;
+  --app-surface: #ffffff;
+  --app-raised: #ffffff;
+  --app-border: #e3e6ec;
+  --app-border-strong: #cfd4dd;
+  --app-text: #15171c;
+  --app-text-soft: #5d6675;
+  --app-brand: #6d5ae6;
+  --app-brand-strong: #5a46d6;
+  --app-brand-soft: #efecff;
+  --app-danger: #dc2626;
+  --app-shadow: 0 1px 2px rgba(16, 20, 32, 0.06), 0 8px 24px -12px rgba(16, 20, 32, 0.18);
+}
+
+.dark {
+  --app-bg: #0c0d11;
+  --app-surface: #14161b;
+  --app-raised: #1a1d23;
+  --app-border: #262a33;
+  --app-border-strong: #363b46;
+  --app-text: #f1f2f5;
+  --app-text-soft: #99a1b0;
+  --app-brand: #8b7cff;
+  --app-brand-strong: #a294ff;
+  --app-brand-soft: #221f3a;
+  --app-danger: #f87171;
+  --app-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px -16px rgba(0, 0, 0, 0.7);
+}
+
+@theme inline {
+  --color-app: var(--app-bg);
+  --color-surface: var(--app-surface);
+  --color-raised: var(--app-raised);
+  --color-line: var(--app-border);
+  --color-line-strong: var(--app-border-strong);
+  --color-ink: var(--app-text);
+  --color-ink-soft: var(--app-text-soft);
+  --color-brand: var(--app-brand);
+  --color-brand-strong: var(--app-brand-strong);
+  --color-brand-soft: var(--app-brand-soft);
+  --color-danger: var(--app-danger);
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --shadow-app: var(--app-shadow);
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+  body {
+    background-color: var(--app-bg);
+    color: var(--app-text);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--app-border-strong) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--app-border-strong);
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--app-brand) 30%, transparent);
+  }
+  button {
+    cursor: pointer;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .animate-in {
+    animation: app-in 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .animate-pop {
+    animation: app-pop 160ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .animate-fade {
+    animation: app-fade 160ms ease-out;
+  }
+}
+
+@keyframes app-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes app-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes app-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
