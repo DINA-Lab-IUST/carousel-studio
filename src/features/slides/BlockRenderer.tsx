@@ -1,10 +1,22 @@
-import { AlertTriangle, CheckCircle2, Image as ImageIcon, Info } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Image as ImageIcon, Info, SquareTerminal } from 'lucide-react'
 import type { CSSProperties } from 'react'
 
+import { CodeLogo } from '../../lib/codeLogos'
+import {
+  DARK_PALETTE,
+  detectLanguageFromFilename,
+  highlightCode,
+  highlightTerminal,
+  isDarkColor,
+  LANGUAGE_LABELS,
+  LIGHT_PALETTE,
+  type HighlightPalette,
+  type Token,
+} from '../../lib/highlight'
 import { getIcon } from '../../lib/icons'
-import { withAlpha } from '../../lib/themes'
-import type { Block, ThemeTokens } from '../../lib/types'
-import { cn } from '../../lib/utils'
+import { resolveCodeFont, withAlpha } from '../../lib/themes'
+import type { Block, TextDirection, ThemeTokens } from '../../lib/types'
+import { cn, toPersianDigits } from '../../lib/utils'
 import { EditableText } from './EditableText'
 
 export type Variant = 'display' | 'title' | 'section' | 'subtitle' | 'body'
@@ -19,12 +31,324 @@ const TYPE_SCALE: Record<Variant, number> = {
 
 const TONE_ICONS = { info: Info, success: CheckCircle2, warning: AlertTriangle }
 
+type CodeBlock = Extract<Block, { type: 'code' }>
+
+/** The macOS window controls, in their canonical order. */
+const TRAFFIC_LIGHTS = ['#ff5f56', '#ffbd2e', '#27c93f']
+
+interface WindowChrome {
+  shell: string
+  header: string
+  border: string
+  gutter: string
+  gutterBg: string
+  shadow: string
+  dark: boolean
+}
+
+const DARK_CHROME: WindowChrome = {
+  shell: '#21252b',
+  header: '#2c313a',
+  border: '#171a1f',
+  gutter: '#5c6370',
+  gutterBg: '#1b1e24',
+  shadow: '0 18px 44px -14px rgba(0, 0, 0, 0.55)',
+  dark: true,
+}
+
+const LIGHT_CHROME: WindowChrome = {
+  shell: '#ffffff',
+  header: '#f2f4f7',
+  border: '#d7dce3',
+  gutter: '#98a1ad',
+  gutterBg: '#f7f9fb',
+  shadow: '0 18px 44px -18px rgba(15, 23, 42, 0.22)',
+  dark: false,
+}
+
+/** 'theme-match' lets the window borrow the slide's own surface and border. */
+function resolveChrome(tokens: ThemeTokens, variant: CodeBlock['themeVariant']): WindowChrome {
+  if (variant === 'dark') return DARK_CHROME
+  if (variant === 'light') return LIGHT_CHROME
+  return isDarkColor(tokens.bg)
+    ? {
+        shell: withAlpha(tokens.text, 0.1),
+        header: withAlpha(tokens.text, 0.14),
+        border: withAlpha(tokens.text, 0.24),
+        gutter: tokens.muted,
+        gutterBg: withAlpha(tokens.text, 0.06),
+        shadow: tokens.shadow === 'none' ? DARK_CHROME.shadow : tokens.shadow,
+        dark: true,
+      }
+    : {
+        shell: tokens.surface,
+        header: withAlpha(tokens.text, 0.05),
+        border: tokens.border,
+        gutter: tokens.muted,
+        gutterBg: withAlpha(tokens.text, 0.03),
+        shadow: tokens.shadow === 'none' ? LIGHT_CHROME.shadow : tokens.shadow,
+        dark: false,
+      }
+}
+
+/** Tokens paint as plain spans so the slide rasterizes with no extra machinery. */
+function TokenRun({ tokens, palette }: { tokens: Token[]; palette: HighlightPalette }) {
+  return (
+    <>
+      {tokens.map((token, index) => (
+        <span key={index} style={{ color: palette[token.kind] }}>
+          {token.text}
+        </span>
+      ))}
+    </>
+  )
+}
+
+const CODE_FONT_SIZE = 21
+const CODE_LINE_HEIGHT = 1.55
+
+/**
+ * Code and terminal blocks are a deliberate island inside the slide.
+ *
+ * Source code is read left to right in every language we ship, so this window
+ * pins its own `dir`, alignment and monospace font rather than inheriting the
+ * slide's direction — an RTL Persian deck still shows a left-aligned snippet.
+ */
+function CodeWindow({
+  block,
+  tokens,
+  unit,
+  interactive,
+  onPatch,
+}: {
+  block: CodeBlock
+  tokens: ThemeTokens
+  unit: number
+  interactive: boolean
+  onPatch?: (patch: Record<string, unknown>) => void
+}) {
+  const chrome = resolveChrome(tokens, block.themeVariant)
+  const palette = chrome.dark ? DARK_PALETTE : LIGHT_PALETTE
+  const terminal = block.mode === 'terminal'
+  const filename = block.filename ?? ''
+  const codeFont = resolveCodeFont(tokens)
+  // A terminal has no file to name, so the titlebar shows the session instead.
+  const sessionTitle = terminal
+    ? block.terminalTitle?.trim() || `zsh — ${block.terminalPrompt?.trim() || '~'}`
+    : ''
+
+  /**
+   * The snippet is always painted as highlighted tokens, on the canvas and in
+   * the export alike. Editing happens in the ContentPanel, or on the tab label
+   * here — the code body itself stays a faithful picture of the syntax.
+   */
+  const rename = (value: string) => {
+    const detected = detectLanguageFromFilename(value)
+    onPatch?.(detected ? { filename: value, language: detected } : { filename: value })
+  }
+
+  // Nothing inside the window may inherit the slide's reading direction.
+  const isolation: CSSProperties = {
+    direction: 'ltr',
+    textAlign: 'left',
+    fontFamily: codeFont,
+    unicodeBidi: 'isolate',
+  }
+
+  // Terminal transcripts read as a session; a line is a command only if it carries a marker.
+  const rows = terminal
+    ? highlightTerminal(block.code, block.terminalPrompt ?? '').map((line) => line.tokens)
+    : highlightCode(block.code, block.language)
+  const lineNumbers = block.code.split('\n')
+  const showNumbers = !terminal && (block.showLineNumbers ?? true)
+
+  const fontSize = CODE_FONT_SIZE * unit
+  const bodyPadding = 26 * unit
+  const lineStyle: CSSProperties = {
+    ...isolation,
+    fontSize,
+    lineHeight: CODE_LINE_HEIGHT,
+    color: palette.plain,
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-word',
+  }
+  const titleStyle: CSSProperties = {
+    ...isolation,
+    display: 'block',
+    minWidth: 0,
+    fontSize: 19 * unit,
+    fontWeight: 500,
+    color: chrome.dark ? '#d7dae0' : '#24292f',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  }
+
+  return (
+    <div
+      dir="ltr"
+      style={{
+        ...isolation,
+        width: '100%',
+        borderRadius: 16 * unit,
+        border: `1px solid ${chrome.border}`,
+        background: chrome.shell,
+        boxShadow: chrome.shadow,
+        overflow: 'hidden',
+      }}
+    >
+      <div
+        dir="ltr"
+        style={{
+          ...isolation,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 16 * unit,
+          padding: `${13 * unit}px ${18 * unit}px`,
+          background: chrome.header,
+          borderBottom: `1px solid ${chrome.border}`,
+        }}
+      >
+        <span style={{ display: 'flex', gap: 8 * unit, flexShrink: 0 }}>
+          {TRAFFIC_LIGHTS.map((color) => (
+            <span
+              key={color}
+              style={{ width: 12 * unit, height: 12 * unit, borderRadius: 999, background: color }}
+            />
+          ))}
+        </span>
+
+        {terminal ? (
+          /* Terminals get a unified titlebar: no tab, no file name, no badge. */
+          <span
+            style={{
+              ...isolation,
+              flex: 1,
+              minWidth: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8 * unit,
+              fontSize: 17 * unit,
+              fontWeight: 500,
+              color: chrome.dark ? '#9aa5b1' : '#57606a',
+            }}
+          >
+            <SquareTerminal size={16 * unit} strokeWidth={1.75} style={{ flexShrink: 0, opacity: 0.8 }} />
+            <span
+              style={{
+                minWidth: 0,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {sessionTitle}
+            </span>
+          </span>
+        ) : (
+          /* The active file tab: it sits flush against the body so it reads as a real tab. */
+          <div
+            dir="ltr"
+            style={{
+              ...isolation,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10 * unit,
+              marginBottom: -13 * unit - 1,
+              marginLeft: 4 * unit,
+              padding: `${9 * unit}px ${18 * unit}px`,
+              maxWidth: '64%',
+              background: chrome.shell,
+              borderTop: `1px solid ${chrome.border}`,
+              borderLeft: `1px solid ${chrome.border}`,
+              borderRight: `1px solid ${chrome.border}`,
+              borderTopLeftRadius: 10 * unit,
+              borderTopRightRadius: 10 * unit,
+            }}
+          >
+            {/* The mark is a bare path; this wrapper stays transparent so no white notch appears. */}
+            <span style={{ flexShrink: 0, display: 'flex', background: 'transparent', border: 'none', padding: 0 }}>
+              <CodeLogo language={block.language} size={19 * unit} tone={chrome.dark ? 'dark' : 'light'} />
+            </span>
+            {/* While editing the tab label is a textbox; the exported slide gets plain markup. */}
+            {interactive ? (
+              <EditableText
+                value={filename}
+                editable
+                dir="ltr"
+                onChange={rename}
+                placeholder={`${LANGUAGE_LABELS[block.language]} file`}
+                style={titleStyle}
+              />
+            ) : (
+              <span style={titleStyle}>{filename || `${LANGUAGE_LABELS[block.language]} file`}</span>
+            )}
+            <span
+              style={{
+                flexShrink: 0,
+                fontFamily: codeFont,
+                fontSize: 15 * unit,
+                fontWeight: 500,
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+                padding: `${4 * unit}px ${9 * unit}px`,
+                borderRadius: 999,
+                background: withAlpha(palette.plain, 0.14),
+                color: palette.comment,
+              }}
+            >
+              {LANGUAGE_LABELS[block.language]}
+            </span>
+          </div>
+        )}
+      </div>
+
+      <div dir="ltr" style={{ ...isolation, display: 'flex', alignItems: 'stretch' }}>
+        {showNumbers && (
+          <div
+            aria-hidden
+            style={{
+              ...isolation,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'flex-end',
+              flexShrink: 0,
+              padding: `${bodyPadding}px ${14 * unit}px`,
+              background: chrome.gutterBg,
+              borderRight: `1px solid ${chrome.border}`,
+              fontSize,
+              lineHeight: CODE_LINE_HEIGHT,
+              color: chrome.gutter,
+              userSelect: 'none',
+            }}
+          >
+            {lineNumbers.map((_, index) => (
+              <span key={index}>{index + 1}</span>
+            ))}
+          </div>
+        )}
+
+        <div dir="ltr" style={{ ...isolation, flex: 1, minWidth: 0, padding: `${bodyPadding}px ${24 * unit}px` }}>
+          {rows.map((row, index) => (
+            <div key={index} style={lineStyle}>
+              <TokenRun tokens={row} palette={palette} />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export interface BlockRendererProps {
   block: Block
   tokens: ThemeTokens
   unit: number
   variant: Variant
   centered: boolean
+  /** Reading direction of the slide. Code blocks ignore it on purpose. */
+  direction?: TextDirection
   interactive?: boolean
   selected?: boolean
   onSelect?: () => void
@@ -37,11 +361,20 @@ export function BlockRenderer({
   unit,
   variant,
   centered,
+  direction = 'ltr',
   interactive = false,
   selected = false,
   onSelect,
   onPatch,
 }: BlockRendererProps) {
+  const isRtl = direction === 'rtl'
+  // Persian glyphs (گ چ پ ژ گ) reach well above and below the baseline, so the
+  // display sizes get extra leading or the ascenders start touching the line above.
+  const headingLineHeight = isRtl ? 1.3 : 1.08
+  const ctaLineHeight = isRtl ? 1.32 : 1.1
+  // An explicit block.align is a user choice; the default follows the reading edge.
+  const startAlign: CSSProperties['textAlign'] = centered ? 'center' : isRtl ? 'right' : 'left'
+
   const selectionRing = selected ? '0 0 0 3px rgba(109, 90, 230, 0.85), 0 0 0 7px rgba(109, 90, 230, 0.25)' : undefined
 
   const wrapper = (children: React.ReactNode, extra?: CSSProperties) => (
@@ -74,11 +407,11 @@ export function BlockRenderer({
             fontFamily: tokens.fontHeading,
             fontWeight: tokens.headingWeight,
             fontSize: size,
-            lineHeight: 1.08,
+            lineHeight: headingLineHeight,
             letterSpacing: tokens.headingTracking,
             textTransform: tokens.headingCase,
             color: tokens.text,
-            textAlign: block.align ?? (centered ? 'center' : 'left'),
+            textAlign: block.align ?? startAlign,
           }}
         />,
       )
@@ -99,7 +432,7 @@ export function BlockRenderer({
             fontSize: size,
             lineHeight: variant === 'subtitle' ? 1.45 : 1.55,
             color: variant === 'subtitle' ? withAlpha(tokens.text, 0.82) : withAlpha(tokens.text, 0.9),
-            textAlign: block.align ?? (centered ? 'center' : 'left'),
+            textAlign: block.align ?? startAlign,
             whiteSpace: 'pre-wrap',
           }}
         />,
@@ -179,9 +512,12 @@ export function BlockRenderer({
                   alignItems: 'center',
                   justifyContent: 'center',
                   marginTop: 4 * unit,
+                  // Flex already flips in RTL; the logical margin keeps the marker off the text.
+                  marginInlineEnd: isRtl ? 12 * unit : undefined,
                 }}
               >
-                {block.ordered ? index + 1 : '•'}
+                {/* Persian decks number their lists with Arabic-Indic digits. */}
+                {block.ordered ? (isRtl ? toPersianDigits(index + 1) : index + 1) : '•'}
               </span>
               <EditableText
                 value={item}
@@ -402,7 +738,8 @@ export function BlockRenderer({
             alignItems: 'flex-start',
             background: tokens.surface,
             border: `1px solid ${tokens.border}`,
-            borderLeft: `${6 * unit}px solid ${tokens.accent}`,
+            // Logical border: the accent stripe sits on the reading edge in both directions.
+            borderInlineStart: `${6 * unit}px solid ${tokens.accent}`,
             borderRadius: tokens.radius,
             boxShadow: tokens.shadow,
             padding: 32 * unit,
@@ -445,11 +782,11 @@ export function BlockRenderer({
               fontFamily: tokens.fontHeading,
               fontWeight: tokens.headingWeight,
               fontSize: 62 * unit,
-              lineHeight: 1.1,
+              lineHeight: ctaLineHeight,
               letterSpacing: tokens.headingTracking,
               textTransform: tokens.headingCase,
               color: tokens.text,
-              textAlign: centered ? 'center' : 'left',
+              textAlign: startAlign,
             }}
           />
           <EditableText
@@ -463,12 +800,19 @@ export function BlockRenderer({
               fontSize: 28 * unit,
               lineHeight: 1.5,
               color: withAlpha(tokens.text, 0.82),
-              textAlign: centered ? 'center' : 'left',
+              textAlign: startAlign,
             }}
           />
         </div>,
       )
     }
+
+    case 'code':
+      // Belt and braces: the wrapper itself is pinned LTR too, not just the window inside it.
+      return wrapper(
+        <CodeWindow block={block} tokens={tokens} unit={unit} interactive={interactive} onPatch={onPatch} />,
+        { direction: 'ltr' },
+      )
 
     default:
       return null

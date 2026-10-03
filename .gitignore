@@ -44,3 +44,6 @@ coverage/
 
 # Local project files
 *.local
+.freebuff/
+.swarm/
+code-doc.md

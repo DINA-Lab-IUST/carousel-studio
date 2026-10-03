@@ -20,6 +20,13 @@ export function titleCase(input: string): string {
   return input.replace(/\w\S*/g, (word) => word.charAt(0).toUpperCase() + word.slice(1))
 }
 
+const PERSIAN_DIGITS = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹']
+
+/** Latin digits to Extended Arabic-Indic, for Persian (RTL) decks. */
+export function toPersianDigits(value: string | number): string {
+  return String(value).replace(/[0-9]/g, (digit) => PERSIAN_DIGITS[Number(digit)])
+}
+
 export function pluralize(count: number, singular: string, plural?: string): string {
   return `${count} ${count === 1 ? singular : (plural ?? `${singular}s`)}`
 }

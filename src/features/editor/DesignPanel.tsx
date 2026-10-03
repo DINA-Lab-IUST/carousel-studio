@@ -3,11 +3,23 @@ import { useRef, useState } from 'react'
 
 import { Button } from '../../components/ui/Button'
 import { Input, Label, SectionTitle, Select, Slider, Toggle } from '../../components/ui/Field'
+import { Segmented } from '../../components/ui/Segmented'
 import { useToast } from '../../components/ui/Toast'
 import { loadBrandKit, saveBrandKit } from '../../lib/brand'
 import { PLATFORMS } from '../../lib/platforms'
-import { BG_STYLE_OPTIONS, FONT_OPTIONS, getTheme, RADIUS_OPTIONS, THEMES } from '../../lib/themes'
-import type { BrandKit, PlatformId, Project } from '../../lib/types'
+import {
+  BG_STYLE_OPTIONS,
+  CODE_FONT_OPTIONS,
+  FONT_OPTIONS,
+  FONT_VAZIRMATN,
+  getTheme,
+  isRtlStarterTheme,
+  RADIUS_OPTIONS,
+  resolveCodeFont,
+  supportsPersian,
+  THEMES,
+} from '../../lib/themes'
+import type { AuthorProfile, BrandKit, PlatformId, Project, SocialKey, TextDirection } from '../../lib/types'
 import { cn, readFileAsDataUrl } from '../../lib/utils'
 import { useAppStore } from '../../store/store'
 import { ThemeSwatch } from '../themes/ThemeSwatch'
@@ -64,6 +76,37 @@ export function DesignPanel({ project }: { project: Project }) {
     () => loadBrandKit() ?? { name: '', color: tokens.accent, font: tokens.fontHeading },
   )
 
+  const author = project.design.author ?? { name: '' }
+  const authorInputRef = useRef<HTMLInputElement>(null)
+  const labInputRef = useRef<HTMLInputElement>(null)
+  const patchAuthor = (patch: Partial<AuthorProfile>) => setDesign({ author: { ...author, ...patch } })
+  const patchSocial = (key: SocialKey, value: string) =>
+    // Blanking a field removes it, so the outro card never shows an empty badge.
+    patchAuthor({ socials: { ...author.socials, [key]: value.trim() || undefined } })
+
+  /**
+   * Switching to RTL only makes sense with a font that actually has Persian
+   * glyphs, so a Latin-only heading or body face is upgraded to Vazirmatn.
+   */
+  const changeDirection = (direction: TextDirection) => {
+    if (direction === project.design.direction) return
+
+    const current = {
+      heading: overrides.fontHeading ?? tokens.fontHeading,
+      body: overrides.fontBody ?? tokens.fontBody,
+    }
+    const needsPersianFont = !supportsPersian(current.heading) || !supportsPersian(current.body)
+
+    setDesign(
+      needsPersianFont && direction === 'rtl'
+        ? { direction, overrides: { ...overrides, fontHeading: FONT_VAZIRMATN, fontBody: FONT_VAZIRMATN } }
+        : { direction },
+    )
+    if (needsPersianFont && direction === 'rtl') {
+      toast('Switched to Vazirmatn so Persian text renders correctly', 'success')
+    }
+  }
+
   const uploadLogo = async (file: File | undefined, target: 'project' | 'brand') => {
     if (!file) return
     try {
@@ -73,6 +116,21 @@ export function DesignPanel({ project }: { project: Project }) {
         setDesign({ showLogo: true })
       } else {
         setBrandKit((kit) => ({ ...kit, logoUrl: dataUrl }))
+      }
+    } catch {
+      toast('Could not read that image', 'error')
+    }
+  }
+
+  /** Avatar and lab emblem are stashed as base64 inside the design record. */
+  const uploadAuthorImage = async (file: File | undefined, target: 'avatar' | 'lab') => {
+    if (!file) return
+    try {
+      const dataUrl = await readFileAsDataUrl(file)
+      if (target === 'avatar') {
+        setDesign({ author: { ...author, avatarUrl: dataUrl } })
+      } else {
+        setDesign({ labLogoUrl: dataUrl, showLabBadge: true })
       }
     } catch {
       toast('Could not read that image', 'error')
@@ -89,7 +147,10 @@ export function DesignPanel({ project }: { project: Project }) {
               key={item.id}
               type="button"
               title={item.tagline}
-              onClick={() => setTheme(item.id)}
+              onClick={() => {
+                setTheme(item.id)
+                if (isRtlStarterTheme(item.id)) changeDirection('rtl')
+              }}
               className={cn(
                 'relative rounded-xl border p-1 transition-all',
                 item.id === project.design.themeId
@@ -168,6 +229,19 @@ export function DesignPanel({ project }: { project: Project }) {
               </Select>
             </div>
           </div>
+          <div>
+            <Label hint="Code & terminal blocks only">Code font</Label>
+            <Select
+              value={resolveCodeFont({ ...tokens, ...overrides })}
+              onChange={(event) => setOverrides({ fontCode: event.target.value })}
+            >
+              {CODE_FONT_OPTIONS.map((font) => (
+                <option key={font.value} value={font.value}>
+                  {font.label}
+                </option>
+              ))}
+            </Select>
+          </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
               <Label>Corners</Label>
@@ -215,6 +289,19 @@ export function DesignPanel({ project }: { project: Project }) {
       <section>
         <SectionTitle>Display</SectionTitle>
         <div className="space-y-2.5">
+          <div>
+            <Label hint="Code blocks always stay left-to-right">Text direction</Label>
+            <Segmented
+              full
+              size="sm"
+              value={project.design.direction ?? 'ltr'}
+              onChange={changeDirection}
+              options={[
+                { value: 'ltr', label: 'LTR (English)' },
+                { value: 'rtl', label: 'RTL (فارسی)' },
+              ]}
+            />
+          </div>
           <Input
             value={project.design.kicker}
             placeholder="Kicker label (e.g. BUILDING IN PUBLIC)"
@@ -272,6 +359,167 @@ export function DesignPanel({ project }: { project: Project }) {
         <p className="mt-1.5 text-[11px] text-ink-soft">
           Presets are abstract — new networks can be added without touching the editor.
         </p>
+      </section>
+
+      <section>
+        <SectionTitle hint="Cover & closing slide">Author & Lab</SectionTitle>
+        <div className="space-y-3">
+          <Toggle
+            checked={Boolean(project.design.showAuthor)}
+            onChange={(showAuthor) => setDesign({ showAuthor })}
+            label="Show author profile"
+            description="A byline on the cover, a full card on the closing slide"
+          />
+          {project.design.showAuthor && (
+            <>
+              <Input
+                value={author.name}
+                placeholder="Author name"
+                onChange={(event) => patchAuthor({ name: event.target.value })}
+              />
+              <Input
+                value={author.role ?? ''}
+                placeholder="Role (e.g. Senior Software Engineer)"
+                onChange={(event) => patchAuthor({ role: event.target.value })}
+              />
+              <Input
+                value={author.handle ?? ''}
+                placeholder="Handle (e.g. @username)"
+                onChange={(event) => patchAuthor({ handle: event.target.value })}
+              />
+              <div className="flex items-center gap-2">
+                {author.avatarUrl ? (
+                  <img
+                    src={author.avatarUrl}
+                    alt=""
+                    className="h-10 w-10 shrink-0 rounded-full border border-line object-cover"
+                  />
+                ) : (
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-dashed border-line-strong text-[11px] text-ink-soft">
+                    ?
+                  </span>
+                )}
+                <input
+                  ref={authorInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(event) => uploadAuthorImage(event.target.files?.[0], 'avatar')}
+                />
+                <Button size="sm" className="flex-1" onClick={() => authorInputRef.current?.click()}>
+                  <Upload size={13} />
+                  {author.avatarUrl ? 'Replace avatar' : 'Upload avatar'}
+                </Button>
+                {author.avatarUrl && (
+                  <Button size="sm" variant="ghost" onClick={() => patchAuthor({ avatarUrl: undefined })}>
+                    Clear
+                  </Button>
+                )}
+              </div>
+
+              <div className="border-t border-line pt-3">
+                <Label>Social channels</Label>
+                <p className="mb-2 text-[11px] text-ink-soft">
+                  Only the ones you fill in show up on the closing card.
+                </p>
+                <div className="space-y-2">
+                  {(
+                    [
+                      ['linkedin', 'LinkedIn', 'in/username'],
+                      ['github', 'GitHub', 'github.com/username'],
+                      ['telegram', 'Telegram', 't.me/username'],
+                      ['twitter', 'X / Twitter', '@username'],
+                      ['instagram', 'Instagram', '@username'],
+                      ['website', 'Website', 'mywebsite.ir'],
+                      ['email', 'Email', 'author@example.com'],
+                    ] as [SocialKey, string, string][]
+                  ).map(([key, label, placeholder]) => (
+                    <div key={key} className="flex items-center gap-2">
+                      <span className="w-20 shrink-0 text-[11px] text-ink-soft">{label}</span>
+                      <Input
+                        value={author.socials?.[key] ?? ''}
+                        placeholder={placeholder}
+                        onChange={(event) => patchSocial(key, event.target.value)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+
+          <div className="border-t border-line pt-3">
+            <Toggle
+              checked={Boolean(project.design.showLabBadge)}
+              onChange={(showLabBadge) => setDesign({ showLabBadge })}
+              label="Show lab badge"
+              description="A circular emblem in the slide header"
+            />
+          </div>
+          <div className="border-t border-line pt-3">
+            <Toggle
+              checked={Boolean(project.design.showOutroSlide)}
+              onChange={(showOutroSlide) => setDesign({ showOutroSlide })}
+              label="Outro card on last slide"
+              description="Contact card with avatar, CTA and social channels"
+            />
+            {project.design.showOutroSlide && (
+              <div className="mt-3 space-y-2">
+                <Label>Outro call to action</Label>
+                <textarea
+                  value={project.design.outroCtaText ?? ''}
+                  rows={2}
+                  placeholder={
+                    project.design.direction === 'rtl'
+                      ? 'اگر این پست مفید بود، ذخیره‌اش کن و با دوستانت به اشتراک بذار'
+                      : 'Found this useful? Save it and share it with a friend'
+                  }
+                  onChange={(event) => setDesign({ outroCtaText: event.target.value })}
+                  className={cn(
+                    'w-full resize-none rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:border-accent',
+                  )}
+                />
+                <p className="text-[11px] text-ink-soft">Leave empty to use the default line for the slide language.</p>
+              </div>
+            )}
+          </div>
+
+          {project.design.showLabBadge && (
+            <div className="flex items-center gap-2">
+              {project.design.labLogoUrl ? (
+                <img
+                  src={project.design.labLogoUrl}
+                  alt=""
+                  className="h-10 w-10 shrink-0 rounded-full border border-line bg-surface object-contain p-1"
+                />
+              ) : (
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-dashed border-line-strong text-[11px] text-ink-soft">
+                  ?
+                </span>
+              )}
+              <input
+                ref={labInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(event) => uploadAuthorImage(event.target.files?.[0], 'lab')}
+              />
+              <Button size="sm" className="flex-1" onClick={() => labInputRef.current?.click()}>
+                <Upload size={13} />
+                {project.design.labLogoUrl ? 'Replace emblem' : 'Upload lab emblem'}
+              </Button>
+              {project.design.labLogoUrl && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setDesign({ labLogoUrl: undefined, showLabBadge: false })}
+                >
+                  Clear
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
       </section>
 
       <section>

@@ -11,6 +11,10 @@ export const FONT_PLAYFAIR = "'Playfair Display', Georgia, serif"
 export const FONT_DM = "'DM Sans', 'Inter', sans-serif"
 export const FONT_BASKERVILLE = "'Libre Baskerville', Georgia, serif"
 export const FONT_BEBAS = "'Bebas Neue', 'Inter', sans-serif"
+export const FONT_VAZIRMATN = "'Vazirmatn', -apple-system, BlinkMacSystemFont, sans-serif"
+export const FONT_FIRA_CODE = "'Fira Code', ui-monospace, Menlo, Monaco, Consolas, monospace"
+/** Used when a theme predates the code-font token. */
+export const FONT_CODE_MONO = "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
 
 export const FONT_OPTIONS = [
   { label: 'Inter', value: FONT_INTER },
@@ -19,7 +23,30 @@ export const FONT_OPTIONS = [
   { label: 'DM Sans', value: FONT_DM },
   { label: 'Libre Baskerville', value: FONT_BASKERVILLE },
   { label: 'Bebas Neue', value: FONT_BEBAS },
+  { label: 'Vazirmatn (وزیرمتن)', value: FONT_VAZIRMATN },
+  { label: 'Fira Code (کد)', value: FONT_FIRA_CODE },
 ]
+
+/** Code blocks get their own short list — a code font should never be a display serif. */
+export const CODE_FONT_OPTIONS = [
+  { label: 'Fira Code', value: FONT_FIRA_CODE },
+  { label: 'System monospace', value: FONT_CODE_MONO },
+]
+
+/**
+ * Only these faces carry real Arabic-script coverage. Everything else renders
+ * Persian with fallback boxes, so the design panel offers to switch instead.
+ */
+const PERSIAN_CAPABLE_FONTS = new Set([FONT_VAZIRMATN])
+
+export function supportsPersian(font: string): boolean {
+  return PERSIAN_CAPABLE_FONTS.has(font)
+}
+
+/** Resolves the monospace stack a code block should render with. */
+export function resolveCodeFont(tokens: ThemeTokens): string {
+  return tokens.fontCode || FONT_FIRA_CODE
+}
 
 // ---------------------------------------------------------------------------
 // The theme set — small but deliberately designed
@@ -34,6 +61,7 @@ export const THEMES: Theme[] = [
     tokens: {
       fontHeading: FONT_INTER,
       fontBody: FONT_INTER,
+      fontCode: FONT_FIRA_CODE,
       headingWeight: 700,
       bodyWeight: 400,
       headingCase: 'none',
@@ -60,6 +88,7 @@ export const THEMES: Theme[] = [
     tokens: {
       fontHeading: FONT_DM,
       fontBody: FONT_DM,
+      fontCode: FONT_FIRA_CODE,
       headingWeight: 700,
       bodyWeight: 400,
       headingCase: 'none',
@@ -86,6 +115,7 @@ export const THEMES: Theme[] = [
     tokens: {
       fontHeading: FONT_GROTESK,
       fontBody: FONT_INTER,
+      fontCode: FONT_FIRA_CODE,
       headingWeight: 700,
       bodyWeight: 400,
       headingCase: 'none',
@@ -113,6 +143,7 @@ export const THEMES: Theme[] = [
     tokens: {
       fontHeading: FONT_PLAYFAIR,
       fontBody: FONT_INTER,
+      fontCode: FONT_FIRA_CODE,
       headingWeight: 700,
       bodyWeight: 400,
       headingCase: 'none',
@@ -139,6 +170,7 @@ export const THEMES: Theme[] = [
     tokens: {
       fontHeading: FONT_BEBAS,
       fontBody: FONT_INTER,
+      fontCode: FONT_FIRA_CODE,
       headingWeight: 400,
       bodyWeight: 500,
       headingCase: 'uppercase',
@@ -165,6 +197,7 @@ export const THEMES: Theme[] = [
     tokens: {
       fontHeading: FONT_DM,
       fontBody: FONT_DM,
+      fontCode: FONT_FIRA_CODE,
       headingWeight: 700,
       bodyWeight: 400,
       headingCase: 'none',
@@ -191,6 +224,7 @@ export const THEMES: Theme[] = [
     tokens: {
       fontHeading: FONT_BASKERVILLE,
       fontBody: FONT_INTER,
+      fontCode: FONT_FIRA_CODE,
       headingWeight: 700,
       bodyWeight: 400,
       headingCase: 'none',
@@ -217,6 +251,7 @@ export const THEMES: Theme[] = [
     tokens: {
       fontHeading: FONT_INTER,
       fontBody: FONT_INTER,
+      fontCode: FONT_FIRA_CODE,
       headingWeight: 800,
       bodyWeight: 400,
       headingCase: 'none',
@@ -244,6 +279,7 @@ export const THEMES: Theme[] = [
     tokens: {
       fontHeading: FONT_GROTESK,
       fontBody: FONT_INTER,
+      fontCode: FONT_FIRA_CODE,
       headingWeight: 700,
       bodyWeight: 400,
       headingCase: 'none',
@@ -262,9 +298,48 @@ export const THEMES: Theme[] = [
       kickerStyle: 'bar',
     },
   },
+  {
+    id: 'persian-tech',
+    name: 'Persian Tech',
+    tagline: 'Dark RTL starter for فارسی',
+    dark: true,
+    tokens: {
+      fontHeading: FONT_VAZIRMATN,
+      fontBody: FONT_VAZIRMATN,
+      fontCode: FONT_FIRA_CODE,
+      headingWeight: 800,
+      bodyWeight: 400,
+      headingCase: 'none',
+      // Persian is a cursive script: letter-spacing would pull the joins apart.
+      headingTracking: '0em',
+      bg: '#0c1220',
+      gradientTo: '#38bdf8',
+      surface: '#131c30',
+      text: '#eef2fb',
+      muted: '#93a0bd',
+      accent: '#2dd4bf',
+      accentText: '#052e2b',
+      border: '#1f2b45',
+      radius: '14px',
+      padding: 88,
+      shadow: '0 16px 40px -18px rgba(0, 0, 0, 0.9)',
+      background: 'glow',
+      kickerStyle: 'bar',
+    },
+  },
 ]
 
 export const DEFAULT_THEME_ID = 'professional'
+
+/**
+ * Starter themes that ship with Persian type. Selecting one flips the deck to
+ * RTL so the reader gets a coherent right-to-left slide out of the box.
+ */
+const RTL_STARTER_THEME_IDS = new Set(['persian-tech'])
+
+export function isRtlStarterTheme(id: string): boolean {
+  return RTL_STARTER_THEME_IDS.has(id)
+}
 
 export function getTheme(id: string): Theme {
   return THEMES.find((theme) => theme.id === id) ?? THEMES[0]
