@@ -1,5 +1,6 @@
 import {
   BarChart3,
+  Code2,
   Heading1,
   Image as ImageIcon,
   Info,
@@ -26,6 +27,7 @@ export const BLOCK_TYPES: BlockType[] = [
   'comparison',
   'callout',
   'cta',
+  'code',
 ]
 
 export const BLOCK_META: Record<BlockType, { label: string; hint: string; icon: LucideIcon }> = {
@@ -39,6 +41,7 @@ export const BLOCK_META: Record<BlockType, { label: string; hint: string; icon: 
   comparison: { label: 'Comparison', hint: 'This versus that', icon: Scale },
   callout: { label: 'Callout', hint: 'Highlight one idea', icon: Info },
   cta: { label: 'Call to action', hint: 'Ask for the next step', icon: MousePointerClick },
+  code: { label: 'Code & Terminal', hint: 'Syntax code snippet or terminal shell', icon: Code2 },
 }
 
 /** Factories keep new blocks valid, so the renderer never sees malformed data. */
@@ -72,6 +75,18 @@ export function createBlock(type: BlockType): Block {
       return { id, type, text: 'The one thing to remember from this slide.', tone: 'info' }
     case 'cta':
       return { id, type, text: 'Follow for more', subtext: 'Save this post and share it with someone who needs it.' }
+    case 'code':
+      return {
+        id,
+        type,
+        mode: 'editor',
+        language: 'tsx',
+        filename: 'App.tsx',
+        code: `import React from 'react'\n\nexport function Carousel() {\n  return <div>Clean code snippet</div>\n}`,
+        showLineNumbers: true,
+        terminalPrompt: '~/carousel-studio $',
+        themeVariant: 'dark',
+      }
   }
 }
 
@@ -144,6 +159,8 @@ export function getBlockText(block: Block): string | undefined {
     case 'cta':
     case 'quote':
       return block.text
+    case 'code':
+      return block.code
     default:
       return undefined
   }
@@ -157,6 +174,8 @@ export function withBlockText(block: Block, text: string): Block {
     case 'callout':
     case 'cta':
       return { ...block, text }
+    case 'code':
+      return { ...block, code: text }
     default:
       return block
   }

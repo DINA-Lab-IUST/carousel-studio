@@ -4,33 +4,39 @@ import {
   AlignRight,
   ArrowDown,
   ArrowUp,
+  Code2,
   Expand,
   Plus,
   Scissors,
   Sparkles,
+  SquareTerminal,
   Trash2,
   Upload,
   Wand2,
   X,
 } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useRef, useState, type KeyboardEvent } from 'react'
 
 import { Button } from '../../components/ui/Button'
-import { Input, SectionTitle, Select, Textarea, Toggle } from '../../components/ui/Field'
+import { Input, Label, SectionTitle, Select, Textarea, Toggle } from '../../components/ui/Field'
 import { Menu } from '../../components/ui/Menu'
 import { Segmented } from '../../components/ui/Segmented'
 import { Spinner } from '../../components/ui/Spinner'
 import { useToast } from '../../components/ui/Toast'
-import { BLOCK_META, BLOCK_TYPES, getBlockText } from '../../lib/blocks'
+import { BLOCK_META, BLOCK_TYPES, getBlockText, withBlockText } from '../../lib/blocks'
+import { CODE_LANGUAGES, detectLanguageFromFilename, LANGUAGE_LABELS } from '../../lib/highlight'
 import { getIcon, ICON_NAMES } from '../../lib/icons'
 import { LAYOUTS } from '../../lib/layouts'
-import type { Block, Project, Slide } from '../../lib/types'
+import type { Block, CodeBlockMode, CodeLanguage, Project, Slide } from '../../lib/types'
 import { cn, pluralize, readFileAsDataUrl } from '../../lib/utils'
 import { ai } from '../../services/ai'
 import type { TextTweakMode } from '../../services/ai'
 import { useAppStore } from '../../store/store'
 
 type Patch = (patch: Record<string, unknown>) => void
+
+/** Spaces inserted when the user presses Tab inside a snippet. */
+const CODE_TAB_SIZE = 2
 
 function AddBlockMenu({ slideId }: { slideId: string }) {
   const addBlock = useAppStore((state) => state.addBlock)
@@ -57,7 +63,7 @@ function AddBlockMenu({ slideId }: { slideId: string }) {
   )
 }
 
-function AiTextActions({ block, patch }: { block: Block; patch: Patch }) {
+function AiTextActions({ block, apply }: { block: Block; apply: (next: Block) => void }) {
   const { toast } = useToast()
   const [busy, setBusy] = useState<TextTweakMode | null>(null)
   const text = getBlockText(block)
@@ -68,7 +74,8 @@ function AiTextActions({ block, patch }: { block: Block; patch: Patch }) {
     setBusy(mode)
     try {
       const next = await ai.tweakText({ text, mode })
-      patch({ text: next })
+      // withBlockText keeps the result on the field the block actually owns.
+      apply(withBlockText(block, next))
       toast(mode === 'shorten' ? 'Text shortened' : mode === 'expand' ? 'Text expanded' : 'Text rewritten', 'success')
     } finally {
       setBusy(null)
@@ -158,6 +165,162 @@ function ImageField({ block, patch }: { block: Extract<Block, { type: 'image' }>
         <option value="cover">Fill the frame</option>
         <option value="contain">Fit inside the frame</option>
       </Select>
+    </div>
+  )
+}
+
+function CodeField({
+  block,
+  patch,
+}: {
+  block: Extract<Block, { type: 'code' }>
+  patch: Patch
+}) {
+  const terminal = block.mode === 'terminal'
+
+  /**
+ * A believable build session, so switching to terminal mode shows something
+ * worth looking at instead of an empty box.
+ */
+const DEFAULT_SESSION = [
+  '~/carousel-studio $ pnpm build',
+  '',
+  'vite v6.4.3 building for production...',
+  '✓ 142 modules transformed.',
+  '',
+  'dist/index.html                  0.84 kB │ gzip:  0.46 kB',
+  'dist/assets/app-C1n4x.js       148.20 kB │ gzip: 42.10 kB',
+  'dist/assets/app-Bg7y.css        12.63 kB │ gzip:  3.11 kB',
+  '',
+  '✓ built in 340ms',
+].join('\n')
+
+/** Renaming the tab re-detects the language, so `Main.java` just works. */
+  const rename = (filename: string) => {
+    const detected = detectLanguageFromFilename(filename)
+    patch(detected ? { filename, language: detected } : { filename })
+  }
+
+  // Tab should indent, not move focus out of the snippet.
+  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key !== 'Tab') return
+    event.preventDefault()
+    const target = event.currentTarget
+    const { selectionStart, selectionEnd } = target
+    const indent = ' '.repeat(CODE_TAB_SIZE)
+    patch({ code: `${block.code.slice(0, selectionStart)}${indent}${block.code.slice(selectionEnd)}` })
+    requestAnimationFrame(() => {
+      target.selectionStart = selectionStart + indent.length
+      target.selectionEnd = selectionStart + indent.length
+    })
+  }
+
+  return (
+    <div className="space-y-2">
+      <Segmented
+        full
+        size="sm"
+        value={block.mode}
+        onChange={(mode: CodeBlockMode) =>
+          // Seeding only on a switch keeps edits when the toggle is clicked back.
+          patch(
+            mode === 'terminal' && block.mode === 'editor'
+              ? {
+                  mode,
+                  code: block.code.trim() ? block.code : DEFAULT_SESSION,
+                  terminalPrompt: block.terminalPrompt || '~/carousel-studio $',
+                  terminalTitle: block.terminalTitle || 'zsh — ~/carousel-studio',
+                }
+              : { mode },
+          )
+        }
+        options={[
+          { value: 'editor', label: 'Code window', icon: <Code2 size={13} /> },
+          { value: 'terminal', label: 'Terminal', icon: <SquareTerminal size={13} /> },
+        ]}
+      />
+
+      {terminal ? (
+        <>
+          <div>
+            <Label>Terminal title / session</Label>
+            <Input
+              value={block.terminalTitle ?? ''}
+              placeholder="admin@studio: ~/carousel-studio (zsh)"
+              onChange={(event) => patch({ terminalTitle: event.target.value })}
+            />
+            <p className="mt-1 text-[11px] text-ink-soft">Shown centred in the window titlebar.</p>
+          </div>
+          <div>
+            <Label hint="Used to recognise your command lines">Prompt / path format</Label>
+            <Input
+              value={block.terminalPrompt ?? ''}
+              placeholder="~/carousel-studio $"
+              className="font-mono text-[12px]"
+              onChange={(event) => patch({ terminalPrompt: event.target.value })}
+            />
+          </div>
+        </>
+      ) : (
+        <>
+          <div>
+            <Label hint="Language follows the extension">Filename</Label>
+            <Input
+              value={block.filename ?? ''}
+              placeholder="App.tsx"
+              onChange={(event) => rename(event.target.value)}
+            />
+          </div>
+          <div>
+            <Label>Language</Label>
+            <Select
+              value={block.language}
+              onChange={(event) => patch({ language: event.target.value as CodeLanguage })}
+            >
+              {CODE_LANGUAGES.map((language) => (
+                <option key={language} value={language}>
+                  {LANGUAGE_LABELS[language]}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <Toggle
+            checked={block.showLineNumbers ?? true}
+            onChange={(showLineNumbers) => patch({ showLineNumbers })}
+            label="Show line numbers"
+            description="A muted gutter down the left edge"
+          />
+        </>
+      )}
+
+      <Select
+        value={block.themeVariant ?? 'dark'}
+        onChange={(event) => patch({ themeVariant: event.target.value as 'dark' | 'light' | 'theme-match' })}
+      >
+        <option value="dark">Dark window</option>
+        <option value="light">Light window</option>
+        <option value="theme-match">Match slide theme</option>
+      </Select>
+
+      <div>
+        <SectionTitle
+          hint={
+            terminal
+              ? 'Prefix commands with your prompt or $ (e.g. `$ pnpm run build`). Lines without a prompt render as output.'
+              : undefined
+          }
+        >
+          {terminal ? 'Terminal session' : 'Code'}
+        </SectionTitle>
+        <Textarea
+          rows={7}
+          spellCheck={false}
+          value={block.code}
+          onChange={(event) => patch({ code: event.target.value })}
+          onKeyDown={onKeyDown}
+          className="font-mono text-[12px] leading-relaxed"
+        />
+      </div>
     </div>
   )
 }
@@ -342,6 +505,9 @@ function BlockFields({ block, patch }: { block: Block; patch: Patch }) {
           />
         </div>
       )
+
+    case 'code':
+      return <CodeField block={block} patch={patch} />
   }
 }
 
@@ -400,7 +566,7 @@ function BlockCard({ slide, block }: { slide: Slide; block: Block }) {
       </header>
 
       <BlockFields block={block} patch={patch} />
-      <AiTextActions block={block} patch={patch} />
+      <AiTextActions block={block} apply={(next) => updateBlock(slide.id, block.id, next)} />
     </div>
   )
 }

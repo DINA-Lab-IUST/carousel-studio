@@ -17,6 +17,7 @@ export function EditableText({
   style,
   placeholder,
   onFocusChange,
+  dir,
 }: {
   value: string
   onChange?: (value: string) => void
@@ -26,6 +27,8 @@ export function EditableText({
   style?: CSSProperties
   placeholder?: string
   onFocusChange?: (focused: boolean) => void
+  /** Overrides the default: editable text infers direction, code forces 'ltr'. */
+  dir?: 'ltr' | 'rtl' | 'auto'
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const [focused, setFocused] = useState(false)
@@ -44,6 +47,9 @@ export function EditableText({
   return (
     <div
       ref={ref}
+      // dir="auto" lets each edited value pick its own direction from its first strong
+      // character, so mixed Persian/Latin copy moves the caret the way a word processor does.
+      dir={dir ?? (editable ? 'auto' : undefined)}
       role={editable ? 'textbox' : undefined}
       tabIndex={editable ? 0 : undefined}
       contentEditable={editable || undefined}

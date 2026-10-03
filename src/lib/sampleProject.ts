@@ -93,5 +93,23 @@ export function createSampleProject(): Project {
     kicker: 'BUILDING IN PUBLIC',
   })
 
-  return { ...project, id: SAMPLE_PROJECT_ID, createdAt: project.createdAt, updatedAt: project.updatedAt }
+  // A filled-in author so the outro card is discoverable on first run.
+  return {
+    ...project,
+    id: SAMPLE_PROJECT_ID,
+    createdAt: project.createdAt,
+    updatedAt: project.updatedAt,
+    design: {
+      ...project.design,
+      showAuthor: true,
+      showOutroSlide: true,
+      author: {
+        name: 'Alex Rivera',
+        role: 'Frontend Engineer',
+        handle: '@alexbuilds',
+        socials: { github: 'github.com/alexbuilds', linkedin: 'in/alexrivera', website: 'alexbuilds.dev' },
+      },
+    },
+  }
+
 }
